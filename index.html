@@ -12,6 +12,7 @@
             color: white;
             min-height: 100vh;
         }
+        .hidden { display: none !important; }
         .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
         .header { 
             background: rgba(255,255,255,0.1);
@@ -119,19 +120,95 @@
     </style>
 </head>
 <body>
-    <div id="app"></div>
+    <!-- 모드 선택 화면 -->
+    <div id="mode-screen" class="container">
+        <h1 style="text-align: center; margin-top: 50px; font-size: 2.5em;">실시간 동기화 프레젠테이션</h1>
+        <p style="text-align: center; opacity: 0.7; margin-top: 10px;">모드를 선택하세요</p>
+        <div class="mode-select">
+            <div class="mode-card" id="btn-presenter">
+                <div style="font-size: 3em; margin-bottom: 20px;">📊</div>
+                <h2>발표자</h2>
+                <p style="opacity: 0.7; margin-top: 10px;">슬라이드를 조작합니다</p>
+            </div>
+            <div class="mode-card" id="btn-viewer">
+                <div style="font-size: 3em; margin-bottom: 20px;">👥</div>
+                <h2>참여자</h2>
+                <p style="opacity: 0.7; margin-top: 10px;">발표를 시청합니다</p>
+            </div>
+        </div>
+        <div style="max-width: 600px; margin: 50px auto; padding: 20px; background: rgba(255,255,255,0.1); border-radius: 12px;">
+            <h3>💡 사용 방법</h3>
+            <ol style="margin-top: 15px; padding-left: 20px; line-height: 1.8; opacity: 0.9;">
+                <li>발표자: 방 생성 → 슬라이드 업로드</li>
+                <li>이 페이지 URL을 참여자들에게 공유</li>
+                <li>참여자: 같은 URL 접속 → 방 코드 입력</li>
+                <li>실시간 동기화!</li>
+            </ol>
+        </div>
+    </div>
+
+    <!-- 발표자 업로드 화면 -->
+    <div id="upload-screen" class="container hidden">
+        <div class="header">
+            <span>📊 발표자 모드</span>
+            <div class="room-code">방 코드: <span id="room-code-display"></span></div>
+            <button class="button btn-secondary" id="btn-reset">처음으로</button>
+        </div>
+        <div style="max-width: 600px; margin: 50px auto;">
+            <h2 style="text-align: center; margin-bottom: 30px;">슬라이드 준비</h2>
+            <div class="upload-area" id="upload-trigger">
+                <div style="font-size: 3em; margin-bottom: 20px;">📤</div>
+                <h3>슬라이드 이미지 업로드</h3>
+                <p style="opacity: 0.7; margin-top: 10px;">PNG, JPG 파일을 선택하세요</p>
+                <input type="file" id="file-input" multiple accept="image/*" style="display: none;">
+            </div>
+            <button class="button btn-primary" id="btn-sample" style="width: 100%; margin-top: 20px;">
+                샘플 슬라이드로 테스트
+            </button>
+            <div style="margin-top: 30px; padding: 15px; background: rgba(74, 158, 255, 0.2); border-radius: 8px;">
+                <p style="font-size: 0.9em; opacity: 0.9;">
+                    💡 참여자들에게 <strong>방 코드 <span id="room-code-info"></span></strong>를 알려주세요
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 참여자 입장 화면 -->
+    <div id="join-screen" class="container hidden">
+        <div style="max-width: 400px; margin: 100px auto; background: rgba(255,255,255,0.1); padding: 40px; border-radius: 16px;">
+            <h2 style="text-align: center; margin-bottom: 30px;">발표 참여</h2>
+            <input type="text" id="room-input" placeholder="방 코드 입력 (예: ABC123)" maxlength="6" style="width: 100%; margin-bottom: 20px;">
+            <button class="button btn-secondary" id="btn-join" style="width: 100%;">참여하기</button>
+            <button class="button" id="btn-back" style="width: 100%; margin-top: 10px; background: rgba(255,255,255,0.1);">뒤로가기</button>
+        </div>
+    </div>
+
+    <!-- 프레젠테이션 화면 -->
+    <div id="presentation-screen" class="hidden">
+        <div class="header">
+            <span id="mode-display"></span>
+            <span id="slide-counter"></span>
+            <button class="button" id="btn-exit" style="background: rgba(255,255,255,0.1);">종료</button>
+        </div>
+        <div class="slide-container" id="slide-display"></div>
+        <div id="presenter-controls" class="hidden">
+            <div class="controls">
+                <button class="button btn-secondary" id="btn-prev">◀ 이전</button>
+                <button class="button btn-primary" id="btn-next">다음 ▶</button>
+            </div>
+            <p style="text-align: center; opacity: 0.5; margin-top: 15px;">키보드: ← → 또는 스페이스바</p>
+        </div>
+    </div>
 
     <script>
         const STORAGE_KEY = 'presentation_data';
         let syncChannel = null;
         
         try {
-            syncChannel = new BroadcastChannel('presentation_sync_v2');
-        } catch(e) {
-            console.log('BroadcastChannel not supported');
-        }
+            syncChannel = new BroadcastChannel('presentation_sync_v3');
+        } catch(e) {}
 
-        let state = {
+        const state = {
             mode: null,
             roomCode: '',
             currentSlide: 0,
@@ -156,18 +233,10 @@
         }
 
         function saveToStorage(data) {
-            const storageData = {
-                ...data,
-                roomCode: state.roomCode,
-                timestamp: Date.now()
-            };
+            const storageData = { ...data, roomCode: state.roomCode, timestamp: Date.now() };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(storageData));
             if (syncChannel) {
-                try {
-                    syncChannel.postMessage(storageData);
-                } catch(e) {
-                    console.log('Broadcast failed:', e);
-                }
+                try { syncChannel.postMessage(storageData); } catch(e) {}
             }
         }
 
@@ -176,36 +245,88 @@
                 const data = localStorage.getItem(STORAGE_KEY);
                 if (data) {
                     const parsed = JSON.parse(data);
-                    if (parsed.roomCode === state.roomCode) {
-                        return parsed;
-                    }
+                    if (parsed.roomCode === state.roomCode) return parsed;
                 }
-            } catch(e) {
-                console.log('Load failed:', e);
-            }
+            } catch(e) {}
             return null;
         }
 
-        window.createPresenter = function() {
+        function showScreen(screenId) {
+            document.querySelectorAll('#mode-screen, #upload-screen, #join-screen, #presentation-screen').forEach(el => {
+                el.classList.add('hidden');
+            });
+            document.getElementById(screenId).classList.remove('hidden');
+        }
+
+        function updateSlideDisplay() {
+            const slide = state.slides[state.currentSlide];
+            const display = document.getElementById('slide-display');
+            display.textContent = '';
+
+            if (slide) {
+                if (slide.type === 'gradient') {
+                    const slideDiv = document.createElement('div');
+                    slideDiv.className = 'gradient-slide';
+                    slideDiv.style.background = slide.gradient;
+                    
+                    const h1 = document.createElement('h1');
+                    h1.textContent = slide.title;
+                    slideDiv.appendChild(h1);
+                    
+                    const p = document.createElement('p');
+                    p.textContent = slide.subtitle;
+                    slideDiv.appendChild(p);
+                    
+                    const num = document.createElement('div');
+                    num.style.cssText = 'position: absolute; bottom: 30px; right: 30px; font-size: 2em; opacity: 0.3;';
+                    num.textContent = state.currentSlide + 1;
+                    slideDiv.appendChild(num);
+                    
+                    display.appendChild(slideDiv);
+                } else {
+                    const img = document.createElement('img');
+                    img.src = slide.url;
+                    img.className = 'slide';
+                    img.alt = 'Slide ' + (state.currentSlide + 1);
+                    display.appendChild(img);
+                }
+            }
+
+            document.getElementById('slide-counter').textContent = `${state.currentSlide + 1} / ${state.totalSlides}`;
+            document.getElementById('btn-prev').disabled = state.currentSlide === 0;
+            document.getElementById('btn-next').disabled = state.currentSlide === state.totalSlides - 1;
+        }
+
+        // 이벤트 리스너
+        document.getElementById('btn-presenter').addEventListener('click', () => {
             state.mode = 'presenter';
             state.roomCode = generateRoomCode();
-            renderUploadScreen();
-        }
+            document.getElementById('room-code-display').textContent = state.roomCode;
+            document.getElementById('room-code-info').textContent = state.roomCode;
+            showScreen('upload-screen');
+        });
 
-        window.createViewer = function() {
+        document.getElementById('btn-viewer').addEventListener('click', () => {
             state.mode = 'viewer';
-            renderJoinScreen();
-        }
+            showScreen('join-screen');
+        });
 
-        window.useSampleSlides = function() {
+        document.getElementById('btn-sample').addEventListener('click', () => {
             state.slides = sampleSlides;
             state.totalSlides = sampleSlides.length;
             state.currentSlide = 0;
             saveToStorage({ slides: sampleSlides, currentSlide: 0 });
-            renderPresentation();
-        }
+            document.getElementById('mode-display').textContent = `📊 발표자 | 방: ${state.roomCode}`;
+            document.getElementById('presenter-controls').classList.remove('hidden');
+            showScreen('presentation-screen');
+            updateSlideDisplay();
+        });
 
-        window.handleImageUpload = function(e) {
+        document.getElementById('upload-trigger').addEventListener('click', () => {
+            document.getElementById('file-input').click();
+        });
+
+        document.getElementById('file-input').addEventListener('change', (e) => {
             const files = Array.from(e.target.files);
             const slides = [];
             let loaded = 0;
@@ -220,15 +341,18 @@
                         state.totalSlides = slides.length;
                         state.currentSlide = 0;
                         saveToStorage({ slides: slides, currentSlide: 0 });
-                        renderPresentation();
+                        document.getElementById('mode-display').textContent = `📊 발표자 | 방: ${state.roomCode}`;
+                        document.getElementById('presenter-controls').classList.remove('hidden');
+                        showScreen('presentation-screen');
+                        updateSlideDisplay();
                     }
                 };
                 reader.readAsDataURL(file);
             });
-        }
+        });
 
-        window.joinRoom = function() {
-            const code = document.getElementById('roomInput').value.toUpperCase();
+        document.getElementById('btn-join').addEventListener('click', () => {
+            const code = document.getElementById('room-input').value.toUpperCase();
             if (code.length >= 4) {
                 state.roomCode = code;
                 
@@ -247,7 +371,7 @@
                                 state.slides = event.data.slides;
                                 state.totalSlides = event.data.slides.length;
                             }
-                            renderPresentation();
+                            updateSlideDisplay();
                         }
                     };
                 }
@@ -262,169 +386,53 @@
                                     state.slides = data.slides;
                                     state.totalSlides = data.slides.length;
                                 }
-                                renderPresentation();
+                                updateSlideDisplay();
                             }
                         } catch(err) {}
                     }
                 });
                 
-                renderPresentation();
+                document.getElementById('mode-display').textContent = `👥 참여자 | 방: ${state.roomCode}`;
+                showScreen('presentation-screen');
+                updateSlideDisplay();
             }
-        }
+        });
 
-        window.nextSlide = function() {
-            if (state.currentSlide < state.totalSlides - 1) {
-                state.currentSlide++;
-                updateSlide();
-            }
-        }
-
-        window.prevSlide = function() {
+        document.getElementById('btn-prev').addEventListener('click', () => {
             if (state.currentSlide > 0) {
                 state.currentSlide--;
-                updateSlide();
+                if (state.mode === 'presenter') {
+                    saveToStorage({ slides: state.slides, currentSlide: state.currentSlide });
+                }
+                updateSlideDisplay();
             }
-        }
+        });
 
-        function updateSlide() {
-            if (state.mode === 'presenter') {
-                saveToStorage({ 
-                    slides: state.slides, 
-                    currentSlide: state.currentSlide 
-                });
+        document.getElementById('btn-next').addEventListener('click', () => {
+            if (state.currentSlide < state.totalSlides - 1) {
+                state.currentSlide++;
+                if (state.mode === 'presenter') {
+                    saveToStorage({ slides: state.slides, currentSlide: state.currentSlide });
+                }
+                updateSlideDisplay();
             }
-            renderPresentation();
-        }
+        });
+
+        document.getElementById('btn-reset').addEventListener('click', () => location.reload());
+        document.getElementById('btn-back').addEventListener('click', () => location.reload());
+        document.getElementById('btn-exit').addEventListener('click', () => location.reload());
 
         document.addEventListener('keydown', (e) => {
             if (state.mode !== 'presenter') return;
             if (e.key === 'ArrowRight' || e.key === ' ') {
                 e.preventDefault();
-                window.nextSlide();
+                document.getElementById('btn-next').click();
             }
             if (e.key === 'ArrowLeft') {
                 e.preventDefault();
-                window.prevSlide();
+                document.getElementById('btn-prev').click();
             }
         });
-
-        function renderModeSelect() {
-            document.getElementById('app').innerHTML = `
-                <div class="container">
-                    <h1 style="text-align: center; margin-top: 50px; font-size: 2.5em;">실시간 동기화 프레젠테이션</h1>
-                    <p style="text-align: center; opacity: 0.7; margin-top: 10px;">모드를 선택하세요</p>
-                    <div class="mode-select">
-                        <div class="mode-card" onclick="createPresenter()">
-                            <div style="font-size: 3em; margin-bottom: 20px;">📊</div>
-                            <h2>발표자</h2>
-                            <p style="opacity: 0.7; margin-top: 10px;">슬라이드를 조작합니다</p>
-                        </div>
-                        <div class="mode-card" onclick="createViewer()">
-                            <div style="font-size: 3em; margin-bottom: 20px;">👥</div>
-                            <h2>참여자</h2>
-                            <p style="opacity: 0.7; margin-top: 10px;">발표를 시청합니다</p>
-                        </div>
-                    </div>
-                    <div style="max-width: 600px; margin: 50px auto; padding: 20px; background: rgba(255,255,255,0.1); border-radius: 12px;">
-                        <h3>💡 사용 방법</h3>
-                        <ol style="margin-top: 15px; padding-left: 20px; line-height: 1.8; opacity: 0.9;">
-                            <li>발표자: 방 생성 → 슬라이드 업로드</li>
-                            <li>이 페이지 URL을 참여자들에게 공유</li>
-                            <li>참여자: 같은 URL 접속 → 방 코드 입력</li>
-                            <li>실시간 동기화!</li>
-                        </ol>
-                    </div>
-                </div>
-            `;
-        }
-
-        function renderUploadScreen() {
-            document.getElementById('app').innerHTML = `
-                <div class="container">
-                    <div class="header">
-                        <span>📊 발표자 모드</span>
-                        <div class="room-code">방 코드: ${state.roomCode}</div>
-                        <button class="button btn-secondary" onclick="location.reload()">처음으로</button>
-                    </div>
-                    <div style="max-width: 600px; margin: 50px auto;">
-                        <h2 style="text-align: center; margin-bottom: 30px;">슬라이드 준비</h2>
-                        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
-                            <div style="font-size: 3em; margin-bottom: 20px;">📤</div>
-                            <h3>슬라이드 이미지 업로드</h3>
-                            <p style="opacity: 0.7; margin-top: 10px;">PNG, JPG 파일을 선택하세요</p>
-                            <input type="file" id="fileInput" multiple accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
-                        </div>
-                        <button class="button btn-primary" onclick="useSampleSlides()" style="width: 100%; margin-top: 20px;">
-                            샘플 슬라이드로 테스트
-                        </button>
-                        <div style="margin-top: 30px; padding: 15px; background: rgba(74, 158, 255, 0.2); border-radius: 8px;">
-                            <p style="font-size: 0.9em; opacity: 0.9;">
-                                💡 참여자들에게 <strong>방 코드 ${state.roomCode}</strong>를 알려주세요
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        function renderJoinScreen() {
-            document.getElementById('app').innerHTML = `
-                <div class="container">
-                    <div style="max-width: 400px; margin: 100px auto; background: rgba(255,255,255,0.1); padding: 40px; border-radius: 16px;">
-                        <h2 style="text-align: center; margin-bottom: 30px;">발표 참여</h2>
-                        <input type="text" id="roomInput" placeholder="방 코드 입력 (예: ABC123)" maxlength="6" style="width: 100%; margin-bottom: 20px;">
-                        <button class="button btn-secondary" onclick="joinRoom()" style="width: 100%;">참여하기</button>
-                        <button class="button" onclick="location.reload()" style="width: 100%; margin-top: 10px; background: rgba(255,255,255,0.1);">뒤로가기</button>
-                    </div>
-                </div>
-            `;
-        }
-
-        function renderPresentation() {
-            const slide = state.slides[state.currentSlide];
-            let slideHtml = '';
-
-            if (slide) {
-                if (slide.type === 'gradient') {
-                    slideHtml = `
-                        <div class="gradient-slide" style="background: ${slide.gradient};">
-                            <h1>${slide.title}</h1>
-                            <p>${slide.subtitle}</p>
-                            <div style="position: absolute; bottom: 30px; right: 30px; font-size: 2em; opacity: 0.3;">
-                                ${state.currentSlide + 1}
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    slideHtml = `<img src="${slide.url}" class="slide" alt="Slide ${state.currentSlide + 1}">`;
-                }
-            }
-
-            const controlsHtml = state.mode === 'presenter' ? `
-                <div class="controls">
-                    <button class="button btn-secondary" onclick="prevSlide()" ${state.currentSlide === 0 ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>◀ 이전</button>
-                    <button class="button btn-primary" onclick="nextSlide()" ${state.currentSlide === state.totalSlides - 1 ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>다음 ▶</button>
-                </div>
-                <p style="text-align: center; opacity: 0.5; margin-top: 15px;">키보드: ← → 또는 스페이스바</p>
-            ` : '';
-
-            document.getElementById('app').innerHTML = `
-                <div class="header">
-                    <span>${state.mode === 'presenter' ? '📊 발표자' : '👥 참여자'} | 방: ${state.roomCode}</span>
-                    <span>${state.currentSlide + 1} / ${state.totalSlides}</span>
-                    <button class="button" onclick="location.reload()" style="background: rgba(255,255,255,0.1);">종료</button>
-                </div>
-                <div class="slide-container">
-                    ${slideHtml || '<p>슬라이드 로딩 중...</p>'}
-                </div>
-                ${controlsHtml}
-            `;
-        }
-
-        // 페이지 로드 시 초기화
-        window.onload = function() {
-            renderModeSelect();
-        };
     </script>
 </body>
 </html>
