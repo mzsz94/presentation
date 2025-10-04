@@ -88,7 +88,6 @@
             text-align: center;
         }
         input::placeholder { color: rgba(255,255,255,0.5); }
-        .hidden { display: none; }
         .upload-area {
             border: 2px dashed rgba(255,255,255,0.3);
             padding: 60px;
@@ -123,12 +122,13 @@
     <div id="app"></div>
 
     <script>
-        // 실시간 동기화를 위한 BroadcastChannel 사용
         const STORAGE_KEY = 'presentation_data';
         let syncChannel = null;
         
-        if (typeof BroadcastChannel !== 'undefined') {
+        try {
             syncChannel = new BroadcastChannel('presentation_sync_v2');
+        } catch(e) {
+            console.log('BroadcastChannel not supported');
         }
 
         let state = {
@@ -163,33 +163,41 @@
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(storageData));
             if (syncChannel) {
-                syncChannel.postMessage(storageData);
+                try {
+                    syncChannel.postMessage(storageData);
+                } catch(e) {
+                    console.log('Broadcast failed:', e);
+                }
             }
         }
 
         function loadFromStorage() {
-            const data = localStorage.getItem(STORAGE_KEY);
-            if (data) {
-                const parsed = JSON.parse(data);
-                if (parsed.roomCode === state.roomCode) {
-                    return parsed;
+            try {
+                const data = localStorage.getItem(STORAGE_KEY);
+                if (data) {
+                    const parsed = JSON.parse(data);
+                    if (parsed.roomCode === state.roomCode) {
+                        return parsed;
+                    }
                 }
+            } catch(e) {
+                console.log('Load failed:', e);
             }
             return null;
         }
 
-        function createPresenter() {
+        window.createPresenter = function() {
             state.mode = 'presenter';
             state.roomCode = generateRoomCode();
             renderUploadScreen();
         }
 
-        function createViewer() {
+        window.createViewer = function() {
             state.mode = 'viewer';
             renderJoinScreen();
         }
 
-        function useSampleSlides() {
+        window.useSampleSlides = function() {
             state.slides = sampleSlides;
             state.totalSlides = sampleSlides.length;
             state.currentSlide = 0;
@@ -197,7 +205,7 @@
             renderPresentation();
         }
 
-        function handleImageUpload(e) {
+        window.handleImageUpload = function(e) {
             const files = Array.from(e.target.files);
             const slides = [];
             let loaded = 0;
@@ -219,12 +227,11 @@
             });
         }
 
-        function joinRoom() {
+        window.joinRoom = function() {
             const code = document.getElementById('roomInput').value.toUpperCase();
             if (code.length >= 4) {
                 state.roomCode = code;
                 
-                // 저장된 데이터 확인
                 const saved = loadFromStorage();
                 if (saved && saved.slides) {
                     state.slides = saved.slides;
@@ -232,7 +239,6 @@
                     state.totalSlides = saved.slides.length;
                 }
                 
-                // 실시간 동기화 리스너
                 if (syncChannel) {
                     syncChannel.onmessage = (event) => {
                         if (event.data.roomCode === state.roomCode) {
@@ -246,18 +252,19 @@
                     };
                 }
                 
-                // localStorage 변경 감지
                 window.addEventListener('storage', (e) => {
-                    if (e.key === STORAGE_KEY) {
-                        const data = JSON.parse(e.newValue);
-                        if (data.roomCode === state.roomCode) {
-                            state.currentSlide = data.currentSlide || 0;
-                            if (data.slides) {
-                                state.slides = data.slides;
-                                state.totalSlides = data.slides.length;
+                    if (e.key === STORAGE_KEY && e.newValue) {
+                        try {
+                            const data = JSON.parse(e.newValue);
+                            if (data.roomCode === state.roomCode) {
+                                state.currentSlide = data.currentSlide || 0;
+                                if (data.slides) {
+                                    state.slides = data.slides;
+                                    state.totalSlides = data.slides.length;
+                                }
+                                renderPresentation();
                             }
-                            renderPresentation();
-                        }
+                        } catch(err) {}
                     }
                 });
                 
@@ -265,14 +272,14 @@
             }
         }
 
-        function nextSlide() {
+        window.nextSlide = function() {
             if (state.currentSlide < state.totalSlides - 1) {
                 state.currentSlide++;
                 updateSlide();
             }
         }
 
-        function prevSlide() {
+        window.prevSlide = function() {
             if (state.currentSlide > 0) {
                 state.currentSlide--;
                 updateSlide();
@@ -293,11 +300,11 @@
             if (state.mode !== 'presenter') return;
             if (e.key === 'ArrowRight' || e.key === ' ') {
                 e.preventDefault();
-                nextSlide();
+                window.nextSlide();
             }
             if (e.key === 'ArrowLeft') {
                 e.preventDefault();
-                prevSlide();
+                window.prevSlide();
             }
         });
 
@@ -414,7 +421,10 @@
             `;
         }
 
-        renderModeSelect();
+        // 페이지 로드 시 초기화
+        window.onload = function() {
+            renderModeSelect();
+        };
     </script>
 </body>
 </html>
