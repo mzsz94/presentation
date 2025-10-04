@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>실시간 프레젠테이션</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .header { 
+            background: rgba(255,255,255,0.1);
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        .btn-primary { background: #4a9eff; color: white; }
+        .btn-primary:hover { background: #3d8eef; }
+        .btn-secondary { background: #7c3aed; color: white; }
+        .btn-secondary:hover { background: #6d28d9; }
+        .mode-select {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-top: 100px;
+            flex-wrap: wrap;
+        }
+        .mode-card {
+            background: rgba(255,255,255,0.1);
+            padding: 40px;
+            border-radius: 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: transform 0.3s;
+            min-width: 250px;
+        }
+        .mode-card:hover { transform: translateY(-5px); }
+        .slide-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 500px;
+            margin: 20px 0;
+        }
+        .slide {
+            max-width: 100%;
+            max-height: 70vh;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .room-code {
+            background: rgba(74, 158, 255, 0.2);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        input {
+            padding: 12px;
+            border-radius: 8px;
+            border: 2px solid rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.1);
+            color: white;
+            font-size: 16px;
+            text-align: center;
+        }
+        input::placeholder { color: rgba(255,255,255,0.5); }
+        .hidden { display: none; }
+        .upload-area {
+            border: 2px dashed rgba(255,255,255,0.3);
+            padding: 60px;
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .upload-area:hover { border-color: #4a9eff; }
+        .gradient-slide {
+            width: 100%;
+            max-width: 900px;
+            aspect-ratio: 16/9;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px;
+            position: relative;
+        }
+        .gradient-slide h1 { font-size: 3em; margin-bottom: 20px; }
+        .gradient-slide p { font-size: 1.5em; opacity: 0.9; white-space: pre-line; }
+        @media (max-width: 768px) {
+            .gradient-slide h1 { font-size: 2em; }
+            .gradient-slide p { font-size: 1.2em; }
+            .mode-select { flex-direction: column; align-items: center; }
+        }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+
+    <script>
+        // 실시간 동기화를 위한 BroadcastChannel 사용
+        const STORAGE_KEY = 'presentation_data';
+        let syncChannel = null;
+        
+        if (typeof BroadcastChannel !== 'undefined') {
+            syncChannel = new BroadcastChannel('presentation_sync_v2');
+        }
+
+        let state = {
+            mode: null,
+            roomCode: '',
+            currentSlide: 0,
+            slides: [],
+            totalSlides: 0
+        };
+
+        const sampleSlides = [
+            { type: 'gradient', title: '환자 이름', subtitle: '20XX년 봄시즌 스타일', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
+            { type: 'gradient', title: '목차', subtitle: '1. 소개\n2. 주요 내용\n3. 결론', gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
+            { type: 'gradient', title: '핵심 포인트 1', subtitle: '첫 번째 주요 내용', gradient: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
+            { type: 'gradient', title: '핵심 포인트 2', subtitle: '두 번째 주요 내용', gradient: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' },
+            { type: 'gradient', title: '데이터 분석', subtitle: '통계 및 그래프', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
+            { type: 'gradient', title: '사례 연구', subtitle: '실제 적용 사례', gradient: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)' },
+            { type: 'gradient', title: '결과', subtitle: '프로젝트 성과', gradient: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)' },
+            { type: 'gradient', title: '향후 계획', subtitle: '다음 단계', gradient: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)' },
+            { type: 'gradient', title: '감사합니다', subtitle: 'Q&A', gradient: 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)' }
+        ];
+
+        function generateRoomCode() {
+            return Math.random().toString(36).substr(2, 6).toUpperCase();
+        }
+
+        function saveToStorage(data) {
+            const storageData = {
+                ...data,
+                roomCode: state.roomCode,
+                timestamp: Date.now()
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(storageData));
+            if (syncChannel) {
+                syncChannel.postMessage(storageData);
+            }
+        }
+
+        function loadFromStorage() {
+            const data = localStorage.getItem(STORAGE_KEY);
+            if (data) {
+                const parsed = JSON.parse(data);
+                if (parsed.roomCode === state.roomCode) {
+                    return parsed;
+                }
+            }
+            return null;
+        }
+
+        function createPresenter() {
+            state.mode = 'presenter';
+            state.roomCode = generateRoomCode();
+            renderUploadScreen();
+        }
+
+        function createViewer() {
+            state.mode = 'viewer';
+            renderJoinScreen();
+        }
+
+        function useSampleSlides() {
+            state.slides = sampleSlides;
+            state.totalSlides = sampleSlides.length;
+            state.currentSlide = 0;
+            saveToStorage({ slides: sampleSlides, currentSlide: 0 });
+            renderPresentation();
+        }
+
+        function handleImageUpload(e) {
+            const files = Array.from(e.target.files);
+            const slides = [];
+            let loaded = 0;
+
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    slides.push({ type: 'image', url: event.target.result });
+                    loaded++;
+                    if (loaded === files.length) {
+                        state.slides = slides;
+                        state.totalSlides = slides.length;
+                        state.currentSlide = 0;
+                        saveToStorage({ slides: slides, currentSlide: 0 });
+                        renderPresentation();
+                    }
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function joinRoom() {
+            const code = document.getElementById('roomInput').value.toUpperCase();
+            if (code.length >= 4) {
+                state.roomCode = code;
+                
+                // 저장된 데이터 확인
+                const saved = loadFromStorage();
+                if (saved && saved.slides) {
+                    state.slides = saved.slides;
+                    state.currentSlide = saved.currentSlide || 0;
+                    state.totalSlides = saved.slides.length;
+                }
+                
+                // 실시간 동기화 리스너
+                if (syncChannel) {
+                    syncChannel.onmessage = (event) => {
+                        if (event.data.roomCode === state.roomCode) {
+                            state.currentSlide = event.data.currentSlide || 0;
+                            if (event.data.slides) {
+                                state.slides = event.data.slides;
+                                state.totalSlides = event.data.slides.length;
+                            }
+                            renderPresentation();
+                        }
+                    };
+                }
+                
+                // localStorage 변경 감지
+                window.addEventListener('storage', (e) => {
+                    if (e.key === STORAGE_KEY) {
+                        const data = JSON.parse(e.newValue);
+                        if (data.roomCode === state.roomCode) {
+                            state.currentSlide = data.currentSlide || 0;
+                            if (data.slides) {
+                                state.slides = data.slides;
+                                state.totalSlides = data.slides.length;
+                            }
+                            renderPresentation();
+                        }
+                    }
+                });
+                
+                renderPresentation();
+            }
+        }
+
+        function nextSlide() {
+            if (state.currentSlide < state.totalSlides - 1) {
+                state.currentSlide++;
+                updateSlide();
+            }
+        }
+
+        function prevSlide() {
+            if (state.currentSlide > 0) {
+                state.currentSlide--;
+                updateSlide();
+            }
+        }
+
+        function updateSlide() {
+            if (state.mode === 'presenter') {
+                saveToStorage({ 
+                    slides: state.slides, 
+                    currentSlide: state.currentSlide 
+                });
+            }
+            renderPresentation();
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (state.mode !== 'presenter') return;
+            if (e.key === 'ArrowRight' || e.key === ' ') {
+                e.preventDefault();
+                nextSlide();
+            }
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                prevSlide();
+            }
+        });
+
+        function renderModeSelect() {
+            document.getElementById('app').innerHTML = `
+                <div class="container">
+                    <h1 style="text-align: center; margin-top: 50px; font-size: 2.5em;">실시간 동기화 프레젠테이션</h1>
+                    <p style="text-align: center; opacity: 0.7; margin-top: 10px;">모드를 선택하세요</p>
+                    <div class="mode-select">
+                        <div class="mode-card" onclick="createPresenter()">
+                            <div style="font-size: 3em; margin-bottom: 20px;">📊</div>
+                            <h2>발표자</h2>
+                            <p style="opacity: 0.7; margin-top: 10px;">슬라이드를 조작합니다</p>
+                        </div>
+                        <div class="mode-card" onclick="createViewer()">
+                            <div style="font-size: 3em; margin-bottom: 20px;">👥</div>
+                            <h2>참여자</h2>
+                            <p style="opacity: 0.7; margin-top: 10px;">발표를 시청합니다</p>
+                        </div>
+                    </div>
+                    <div style="max-width: 600px; margin: 50px auto; padding: 20px; background: rgba(255,255,255,0.1); border-radius: 12px;">
+                        <h3>💡 사용 방법</h3>
+                        <ol style="margin-top: 15px; padding-left: 20px; line-height: 1.8; opacity: 0.9;">
+                            <li>발표자: 방 생성 → 슬라이드 업로드</li>
+                            <li>이 페이지 URL을 참여자들에게 공유</li>
+                            <li>참여자: 같은 URL 접속 → 방 코드 입력</li>
+                            <li>실시간 동기화!</li>
+                        </ol>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderUploadScreen() {
+            document.getElementById('app').innerHTML = `
+                <div class="container">
+                    <div class="header">
+                        <span>📊 발표자 모드</span>
+                        <div class="room-code">방 코드: ${state.roomCode}</div>
+                        <button class="button btn-secondary" onclick="location.reload()">처음으로</button>
+                    </div>
+                    <div style="max-width: 600px; margin: 50px auto;">
+                        <h2 style="text-align: center; margin-bottom: 30px;">슬라이드 준비</h2>
+                        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+                            <div style="font-size: 3em; margin-bottom: 20px;">📤</div>
+                            <h3>슬라이드 이미지 업로드</h3>
+                            <p style="opacity: 0.7; margin-top: 10px;">PNG, JPG 파일을 선택하세요</p>
+                            <input type="file" id="fileInput" multiple accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
+                        </div>
+                        <button class="button btn-primary" onclick="useSampleSlides()" style="width: 100%; margin-top: 20px;">
+                            샘플 슬라이드로 테스트
+                        </button>
+                        <div style="margin-top: 30px; padding: 15px; background: rgba(74, 158, 255, 0.2); border-radius: 8px;">
+                            <p style="font-size: 0.9em; opacity: 0.9;">
+                                💡 참여자들에게 <strong>방 코드 ${state.roomCode}</strong>를 알려주세요
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderJoinScreen() {
+            document.getElementById('app').innerHTML = `
+                <div class="container">
+                    <div style="max-width: 400px; margin: 100px auto; background: rgba(255,255,255,0.1); padding: 40px; border-radius: 16px;">
+                        <h2 style="text-align: center; margin-bottom: 30px;">발표 참여</h2>
+                        <input type="text" id="roomInput" placeholder="방 코드 입력 (예: ABC123)" maxlength="6" style="width: 100%; margin-bottom: 20px;">
+                        <button class="button btn-secondary" onclick="joinRoom()" style="width: 100%;">참여하기</button>
+                        <button class="button" onclick="location.reload()" style="width: 100%; margin-top: 10px; background: rgba(255,255,255,0.1);">뒤로가기</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPresentation() {
+            const slide = state.slides[state.currentSlide];
+            let slideHtml = '';
+
+            if (slide) {
+                if (slide.type === 'gradient') {
+                    slideHtml = `
+                        <div class="gradient-slide" style="background: ${slide.gradient};">
+                            <h1>${slide.title}</h1>
+                            <p>${slide.subtitle}</p>
+                            <div style="position: absolute; bottom: 30px; right: 30px; font-size: 2em; opacity: 0.3;">
+                                ${state.currentSlide + 1}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    slideHtml = `<img src="${slide.url}" class="slide" alt="Slide ${state.currentSlide + 1}">`;
+                }
+            }
+
+            const controlsHtml = state.mode === 'presenter' ? `
+                <div class="controls">
+                    <button class="button btn-secondary" onclick="prevSlide()" ${state.currentSlide === 0 ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>◀ 이전</button>
+                    <button class="button btn-primary" onclick="nextSlide()" ${state.currentSlide === state.totalSlides - 1 ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>다음 ▶</button>
+                </div>
+                <p style="text-align: center; opacity: 0.5; margin-top: 15px;">키보드: ← → 또는 스페이스바</p>
+            ` : '';
+
+            document.getElementById('app').innerHTML = `
+                <div class="header">
+                    <span>${state.mode === 'presenter' ? '📊 발표자' : '👥 참여자'} | 방: ${state.roomCode}</span>
+                    <span>${state.currentSlide + 1} / ${state.totalSlides}</span>
+                    <button class="button" onclick="location.reload()" style="background: rgba(255,255,255,0.1);">종료</button>
+                </div>
+                <div class="slide-container">
+                    ${slideHtml || '<p>슬라이드 로딩 중...</p>'}
+                </div>
+                ${controlsHtml}
+            `;
+        }
+
+        renderModeSelect();
+    </script>
+</body>
+</html>
